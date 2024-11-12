@@ -21,6 +21,7 @@ namespace AzCam
         private VideoWriter writer;
         private bool isCameraRunning;
         private bool isRecording;
+        private int elapsedSeconds = 0;
         public CameraForm()
         {
             InitializeComponent();
@@ -61,54 +62,17 @@ namespace AzCam
                 return;
             }
 
-            // Set the capture resolution
+            // Attempt to set the capture resolution to 1080x1920
             capture.Set(VideoCaptureProperties.FrameWidth, 1080);
             capture.Set(VideoCaptureProperties.FrameHeight, 1920);
 
-            while (isCameraRunning)
-            {
-                using (var frame = new Mat())
-                {
-                    // Capture the frame
-                    capture.Read(frame);
+            int actualWidth = (int)capture.Get(VideoCaptureProperties.FrameWidth);
+            int actualHeight = (int)capture.Get(VideoCaptureProperties.FrameHeight);
 
-                    if (frame.Empty())
-                        continue;
+            MessageBox.Show($"Camera resolution set to {actualWidth}x{actualHeight}");
 
-                    // Rotate the frame 90 degrees clockwise
-                    Cv2.Rotate(frame, frame, RotateFlags.Rotate90Clockwise);
-
-                    // Display the frame in PictureBox
-                    Bitmap image = frame.ToBitmap();
-                    pictureBox1.Image?.Dispose();
-                    pictureBox1.Image = image;
-
-                    // Write to the video file if recording
-                    if (isRecording)
-                    {
-                        writer.Write(frame);
-                    }
-                }
-            }
-        }
-
-
-        private void StartRecording()
-        {
-            if (isRecording) return;
-
-            // Define the video file path
-            string filePath = "C:\\Video\\recorded_video.mp4";
-
-            // Ensure the directory exists
-            string directory = Path.GetDirectoryName(filePath);
-            if (!Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            // Initialize the VideoWriter with resolution 1080x1920, 30 fps
-            writer = new VideoWriter(filePath, FourCC.MJPG, 30, new OpenCvSharp.Size(1080, 1920));
+            // Initialize VideoWriter with the rotated resolution (1920x1080 after rotation)
+            writer = new VideoWriter("C:\\Video\\recorded_video.avi", FourCC.MJPG, 30, new OpenCvSharp.Size(actualHeight, actualWidth), true);
 
             if (!writer.IsOpened())
             {
@@ -116,16 +80,78 @@ namespace AzCam
                 return;
             }
 
+            isCameraRunning = true;
+            elapsedSeconds = 0;
+            timerRecording.Start(); // Start timer for recording
+
+            // Main loop to capture and display frames
+            Task.Run(() =>
+            {
+                while (isCameraRunning)
+                {
+                    using (var frame = new Mat())
+                    {
+                        // Capture the frame
+                        capture.Read(frame);
+
+                        if (frame.Empty())
+                            continue;
+
+                        // Rotate the frame 90 degrees
+                        Cv2.Rotate(frame, frame, RotateFlags.Rotate90Clockwise);
+
+                        // Update the PictureBox with the rotated frame
+                        Bitmap image = OpenCvSharp.Extensions.BitmapConverter.ToBitmap(frame);
+                        pictureBoxCamera.Invoke((MethodInvoker)(() =>
+                        {
+                            pictureBoxCamera.Image?.Dispose();
+                            pictureBoxCamera.Image = image;
+                            pictureBoxCamera.SizeMode = PictureBoxSizeMode.StretchImage;
+
+                            // Adjust the PictureBox size based on the rotated frame size (1920x1080)
+                            pictureBoxCamera.Width = frame.Height;  // 1920
+                            pictureBoxCamera.Height = frame.Width;  // 1080
+                        }));
+
+                        // Write frame to video file if recording
+                        if (isRecording)
+                        {
+                            writer.Write(frame);
+                        }
+                    }
+                }
+            });
+        }
+
+        private void StartRecording()
+        {
+            if (isRecording) return;
+
             isRecording = true;
+            elapsedSeconds = 0;
+            timerRecording.Start(); // Start the timer
+            MessageBox.Show("Recording started successfully!");
         }
 
         private void buttonStopRecording_Click(object sender, EventArgs e)
         {
-            // Stop recording
             isRecording = false;
+            isCameraRunning = false;
 
             writer?.Release();
             writer = null;
+            capture?.Release();
+
+            timerRecording.Stop(); // Stop the timer
+            MessageBox.Show("Recording stopped. Video saved at C:\\Video\\recorded_video.avi");
+        }
+
+        // Timer tick event to update the elapsed time
+        private void timerRecording_Tick(object sender, EventArgs e)
+        {
+            elapsedSeconds++;
+            TimeSpan time = TimeSpan.FromSeconds(elapsedSeconds);
+            labelTimer.Text = $"Recording Time: {time.ToString(@"hh\:mm\:ss")}";
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
