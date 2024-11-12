@@ -82,7 +82,7 @@ namespace AzCam
 
             isCameraRunning = true;
             elapsedSeconds = 0;
-            timerRecording.Start(); // Start timer for recording
+            /*timerRecording.Start();*/ // Start timer for recording
 
             // Main loop to capture and display frames
             Task.Run(() =>
